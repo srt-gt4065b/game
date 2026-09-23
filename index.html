@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>벽돌깨기 · Brick Breaker</title>
+
+<!-- 폰트 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+
+<!-- Firebase (compat 버전: 설정이 간단함) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+  :root {
+    --bg1: #0b0620;
+    --bg2: #1a0b3d;
+    --card: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #f3f0ff;
+    --muted: #a99fd1;
+    --pink: #ff4fd8;
+    --cyan: #3ee8ff;
+    --yellow: #ffd84f;
+    --green: #5cff9d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(255, 79, 216, 0.25), transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(62, 232, 255, 0.22), transparent 40%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+    background-attachment: fixed;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+  }
+
+  /* ---------- 제목 ---------- */
+  .title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(18px, 4vw, 34px);
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, var(--pink), var(--yellow), var(--cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 24px rgba(255, 79, 216, 0.35);
+    margin-bottom: 6px;
+    text-align: center;
+  }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 22px; text-align: center; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+  .hidden { display: none !important; }
+
+  /* ---------- 로그인 ---------- */
+  #loginScreen { width: 100%; max-width: 420px; padding: 36px 30px; text-align: center; }
+  .brick-deco { display: flex; gap: 6px; justify-content: center; margin-bottom: 22px; }
+  .brick-deco span { width: 36px; height: 14px; border-radius: 4px; box-shadow: 0 0 12px currentColor; }
+  #loginScreen h2 { font-size: 22px; margin-bottom: 6px; }
+  #loginScreen p { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .input {
+    width: 100%; padding: 14px 16px; border-radius: 12px;
+    border: 1px solid var(--border); background: rgba(0, 0, 0, 0.3);
+    color: var(--text); font-size: 16px; font-family: inherit; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(62, 232, 255, 0.2); }
+  .btn {
+    display: inline-block; border: none; cursor: pointer; font-family: inherit;
+    font-weight: 700; font-size: 16px; padding: 14px 22px; border-radius: 12px;
+    color: #1a0b3d; background: linear-gradient(90deg, var(--pink), var(--yellow));
+    box-shadow: 0 8px 24px rgba(255, 79, 216, 0.35);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(255, 79, 216, 0.5); }
+  .btn:active { transform: translateY(0); }
+  .btn.full { width: 100%; margin-top: 14px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); box-shadow: none; }
+  .btn.ghost:hover { border-color: var(--cyan); }
+  .error { color: #ff7a9a; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .mode-badge {
+    display: inline-block; margin-top: 18px; font-size: 12px; padding: 6px 12px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .mode-badge.online { color: var(--green); border-color: rgba(92, 255, 157, 0.4); }
+
+  /* ---------- 게임 화면 ---------- */
+  #gameScreen { display: flex; gap: 20px; width: 100%; max-width: 1080px; align-items: flex-start; }
+  .game-area { flex: 1; min-width: 0; padding: 18px; }
+  .hud { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .hud-item { display: flex; flex-direction: column; }
+  .hud-label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+  .hud-value { font-family: 'Press Start 2P', monospace; font-size: 16px; margin-top: 6px; }
+  .hud-value.player { font-family: 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 17px; margin-top: 3px; }
+  #scoreVal { color: var(--yellow); }
+  #livesVal { color: var(--pink); letter-spacing: 3px; }
+  canvas {
+    display: block; width: 100%; height: auto; border-radius: 14px;
+    border: 1px solid var(--border); background: #070314;
+    touch-action: none;
+  }
+  .help { margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.7; }
+  kbd {
+    display: inline-block; padding: 2px 8px; border-radius: 6px; font-family: inherit; font-size: 12px;
+    border: 1px solid var(--border); background: rgba(255, 255, 255, 0.08); color: var(--text);
+  }
+
+  /* ---------- 순위표 ---------- */
+  .rank-area { width: 320px; flex-shrink: 0; padding: 20px; }
+  .rank-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .rank-head h3 { font-size: 18px; }
+  .live-dot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); }
+  .live-dot::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 8px var(--green); animation: pulse 1.4s infinite;
+  }
+  .live-dot.offline { color: var(--muted); }
+  .live-dot.offline::before { background: var(--muted); box-shadow: none; animation: none; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .rank-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .rank-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid transparent;
+    animation: slideIn .35s ease both;
+  }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(12px); } }
+  .rank-row.me { border-color: var(--cyan); background: rgba(62, 232, 255, 0.1); }
+  .rank-no {
+    width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 900; font-size: 13px; background: rgba(255, 255, 255, 0.08);
+  }
+  .rank-no.r1 { background: linear-gradient(135deg, #ffe27a, #f5a623); color: #3a2100; }
+  .rank-no.r2 { background: linear-gradient(135deg, #f0f0f0, #9ea7b3); color: #222; }
+  .rank-no.r3 { background: linear-gradient(135deg, #f7b684, #b0642c); color: #2b1300; }
+  .rank-name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rank-score { font-family: 'Press Start 2P', monospace; font-size: 11px; color: var(--yellow); }
+  .rank-empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
+  .logout { width: 100%; margin-top: 16px; font-size: 14px; padding: 10px; }
+
+  /* ---------- 결과 모달 ---------- */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(5, 2, 15, 0.7); backdrop-filter: blur(6px);
+    display: grid; place-items: center; z-index: 50; padding: 16px;
+  }
+  .modal { width: 100%; max-width: 380px; padding: 32px 28px; text-align: center; animation: pop .35s ease; }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .modal .emoji { font-size: 52px; margin-bottom: 8px; }
+  .modal h2 { font-family: 'Press Start 2P', monospace; font-size: 20px; margin-bottom: 18px; line-height: 1.5; }
+  .modal h2.win { color: var(--green); text-shadow: 0 0 16px rgba(92, 255, 157, 0.5); }
+  .modal h2.lose { color: var(--pink); text-shadow: 0 0 16px rgba(255, 79, 216, 0.5); }
+  .final-score { font-family: 'Press Start 2P', monospace; font-size: 30px; color: var(--yellow); margin: 6px 0 14px; }
+  .save-status { font-size: 14px; color: var(--muted); min-height: 22px; margin-bottom: 20px; }
+  .modal-btns { display: flex; gap: 10px; }
+  .modal-btns .btn { flex: 1; }
+
+  @media (max-width: 860px) {
+    #gameScreen { flex-direction: column; }
+    .rank-area { width: 100%; }
+    .game-area { width: 100%; padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+  <h1 class="title">BRICK BREAKER</h1>
+  <p class="subtitle">벽돌을 모두 깨고 순위표 1위에 도전하세요!</p>
+
+  <!-- ===================== 로그인 화면 ===================== -->
+  <section id="loginScreen" class="card">
+    <div class="brick-deco">
+      <span style="background:#ff4fd8;color:#ff4fd8"></span>
+      <span style="background:#ffd84f;color:#ffd84f"></span>
+      <span style="background:#5cff9d;color:#5cff9d"></span>
+      <span style="background:#3ee8ff;color:#3ee8ff"></span>
+      <span style="background:#9b7bff;color:#9b7bff"></span>
+    </div>
+    <h2>플레이어 로그인</h2>
+    <p>이름을 입력하면 순위표에 기록이 남아요</p>
+    <input id="nameInput" class="input" type="text" maxlength="12" placeholder="이름 (최대 12자)" autocomplete="off" />
+    <button id="loginBtn" class="btn full">게임 시작 ▶</button>
+    <div id="loginError" class="error"></div>
+    <div id="modeBadge" class="mode-badge"></div>
+  </section>
+
+  <!-- ===================== 게임 화면 ===================== -->
+  <section id="gameScreen" class="hidden">
+    <div class="game-area card">
+      <div class="hud">
+        <div class="hud-item"><span class="hud-label">PLAYER</span><span id="playerVal" class="hud-value player">-</span></div>
+        <div class="hud-item"><span class="hud-label">SCORE</span><span id="scoreVal" class="hud-value">0</span></div>
+        <div class="hud-item"><span class="hud-label">BRICKS</span><span id="bricksVal" class="hud-value">0</span></div>
+        <div class="hud-item"><span class="hud-label">LIVES</span><span id="livesVal" class="hud-value">♥♥♥</span></div>
+      </div>
+      <canvas id="game" width="640" height="480"></canvas>
+      <div class="help">
+        <kbd>←</kbd> <kbd>→</kbd> 패들 이동 &nbsp;·&nbsp; <kbd>Space</kbd> 공 발사 &nbsp;·&nbsp; <kbd>P</kbd> 일시정지
+      </div>
+    </div>
+
+    <aside class="rank-area card">
+      <div class="rank-head">
+        <h3>🏆 실시간 TOP 10</h3>
+        <span id="liveDot" class="live-dot">LIVE</span>
+      </div>
+      <ul id="rankList" class="rank-list">
+        <li class="rank-empty">순위를 불러오는 중…</li>
+      </ul>
+      <button id="logoutBtn" class="btn ghost logout">로그아웃</button>
+    </aside>
+  </section>
+
+  <!-- ===================== 결과 모달 ===================== -->
+  <div id="resultModal" class="modal-bg hidden">
+    <div class="modal card">
+      <div id="resultEmoji" class="emoji">🎉</div>
+      <h2 id="resultTitle" class="win">YOU WIN!</h2>
+      <div class="hud-label">FINAL SCORE</div>
+      <div id="finalScore" class="final-score">0</div>
+      <div id="saveStatus" class="save-status">점수 저장 중…</div>
+      <div class="modal-btns">
+        <button id="retryBtn" class="btn">다시 하기</button>
+        <button id="exitBtn" class="btn ghost">로그아웃</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =========================================================
+   1. Firebase 설정  ← 여기에 본인 프로젝트 값을 붙여넣으세요
+   ========================================================= */
+const firebaseConfig = {
+ apiKey: "AIzaSyCxCl_Q6t0lNlCthUFcb2EP-6xEpMg3zOQ",
+  authDomain: "game-da4c1.firebaseapp.com",
+  databaseURL: "https://game-da4c1-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "game-da4c1",
+  storageBucket: "game-da4c1.firebasestorage.app",
+  messagingSenderId: "252734109667",
+  appId: "1:252734109667:web:29fbff14edad2acdd912d6"
+};
+
+/* 설정값이 아직 비어 있으면 '연습 모드'(브라우저에만 저장)로 동작합니다 */
+const isConfigured = !firebaseConfig.apiKey.startsWith("YOUR_") && !firebaseConfig.databaseURL.startsWith("YOUR_");
+let db = null;
+if (isConfigured) {
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+  } catch (e) {
+    console.error("Firebase 초기화 실패:", e);
+  }
+}
+
+/* =========================================================
+   2. 점수 저장 & 실시간 순위
+   - 저장 위치: /scores/{플레이어키} = { name, score, time }
+   - 플레이어마다 '최고 점수'만 남깁니다
+   ========================================================= */
+const LOCAL_KEY = "brickBreakerScores";
+
+function toKey(name) {
+  // Firebase 키에 쓸 수 없는 문자( . # $ [ ] / )를 안전하게 변환
+  return encodeURIComponent(name).replace(/\./g, "%2E");
+}
+
+function readLocal() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || {}; } catch { return {}; }
+}
+function writeLocal(obj) {
+  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(obj)); } catch {}
+}
+
+async function saveScore(name, score) {
+  const record = { name, score, time: Date.now() };
+  if (db) {
+    const result = await db.ref("scores/" + toKey(name)).transaction(cur => {
+      if (!cur || score > cur.score) return record;
+      return; // 기존 기록이 더 높으면 저장하지 않음
+    });
+    return result.committed;
+  }
+  // 연습 모드
+  const all = readLocal();
+  const key = toKey(name);
+  if (!all[key] || score > all[key].score) {
+    all[key] = record;
+    writeLocal(all);
+    renderRanking(Object.values(all).sort((a, b) => b.score - a.score).slice(0, 10));
+    return true;
+  }
+  return false;
+}
+
+function listenRanking() {
+  const dot = document.getElementById("liveDot");
+  if (db) {
+    dot.textContent = "LIVE";
+    db.ref("scores").orderByChild("score").limitToLast(10).on("value", snap => {
+      const list = [];
+      snap.forEach(child => { list.push(child.val()); });
+      list.reverse(); // 높은 점수가 위로
+      renderRanking(list);
+    }, err => {
+      console.error(err);
+      document.getElementById("rankList").innerHTML =
+        '<li class="rank-empty">순위를 불러오지 못했어요.<br>데이터베이스 규칙을 확인해 주세요.</li>';
+    });
+  } else {
+    dot.textContent = "연습 모드";
+    dot.classList.add("offline");
+    renderRanking(Object.values(readLocal()).sort((a, b) => b.score - a.score).slice(0, 10));
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderRanking(list) {
+  const ul = document.getElementById("rankList");
+  if (!list.length) {
+    ul.innerHTML = '<li class="rank-empty">아직 기록이 없어요.<br>첫 번째 주인공이 되어보세요!</li>';
+    return;
+  }
+  ul.innerHTML = list.map((r, i) => {
+    const medal = i < 3 ? ` r${i + 1}` : "";
+    const me = r.name === playerName ? " me" : "";
+    return `<li class="rank-row${me}" style="animation-delay:${i * 40}ms">
+      <span class="rank-no${medal}">${i + 1}</span>
+      <span class="rank-name">${escapeHtml(r.name)}</span>
+      <span class="rank-score">${Number(r.score).toLocaleString()}</span>
+    </li>`;
+  }).join("");
+}
+
+/* =========================================================
+   3. 로그인
+   ========================================================= */
+let playerName = "";
+const $ = id => document.getElementById(id);
+
+const badge = $("modeBadge");
+if (isConfigured && db) {
+  badge.textContent = "● Firebase 온라인 연결됨";
+  badge.classList.add("online");
+} else {
+  badge.textContent = "○ 연습 모드 (Firebase 설정 전 · 이 브라우저에만 저장)";
+}
+
+function login() {
+  const name = $("nameInput").value.trim();
+  if (!name) { $("loginError").textContent = "이름을 입력해 주세요."; return; }
+  if (name.length > 12) { $("loginError").textContent = "이름은 12자 이내로 입력해 주세요."; return; }
+  playerName = name;
+  try { localStorage.setItem("brickBreakerName", name); } catch {}
+  $("loginError").textContent = "";
+  $("playerVal").textContent = name;
+  $("loginScreen").classList.add("hidden");
+  $("gameScreen").classList.remove("hidden");
+  listenRanking();
+  resetGame();
+}
+
+function logout() {
+  if (db) db.ref("scores").off();
+  $("resultModal").classList.add("hidden");
+  $("gameScreen").classList.add("hidden");
+  $("loginScreen").classList.remove("hidden");
+  state = "login";
+  $("nameInput").focus();
+}
+
+$("loginBtn").addEventListener("click", login);
+$("nameInput").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+$("logoutBtn").addEventListener("click", logout);
+$("exitBtn").addEventListener("click", logout);
+$("retryBtn").addEventListener("click", () => { $("resultModal").classList.add("hidden"); resetGame(); });
+try { $("nameInput").value = localStorage.getItem("brickBreakerName") || ""; } catch {}
+
+/* =========================================================
+   4. 게임 본체
+   ========================================================= */
+const canvas = $("game");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+
+const ROWS = 6, COLS = 10;
+const BRICK_GAP = 6, BRICK_TOP = 70, BRICK_SIDE = 20, BRICK_H = 22;
+const BRICK_W = (W - BRICK_SIDE * 2 - BRICK_GAP * (COLS - 1)) / COLS;
+const ROW_COLORS = [
+  ["#ff4fd8", "#b0249a"],
+  ["#ff7a5c", "#c23d22"],
+  ["#ffd84f", "#c99a12"],
+  ["#5cff9d", "#1fae5c"],
+  ["#3ee8ff", "#0f99b3"],
+  ["#9b7bff", "#5a3bd1"]
+];
+const ROW_POINTS = [60, 50, 40, 30, 20, 10];
+
+let state = "login"; // login | ready | playing | paused | over
+let score, lives, bricks, paddle, ball, particles, bricksLeft;
+const keys = { left: false, right: false };
+
+function makeBricks() {
+  const arr = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      arr.push({
+        x: BRICK_SIDE + c * (BRICK_W + BRICK_GAP),
+        y: BRICK_TOP + r * (BRICK_H + BRICK_GAP),
+        w: BRICK_W, h: BRICK_H, row: r, alive: true
+      });
+    }
+  }
+  return arr;
+}
+
+function resetBall() {
+  ball = { x: paddle.x + paddle.w / 2, y: paddle.y - 9, r: 8, dx: 0, dy: 0, speed: 5, stuck: true };
+}
+
+function resetGame() {
+  score = 0; lives = 3; particles = [];
+  bricks = makeBricks();
+  bricksLeft = bricks.length;
+  paddle = { w: 110, h: 14, x: W / 2 - 55, y: H - 36, speed: 9 };
+  resetBall();
+  state = "ready";
+  updateHud();
+}
+
+function launchBall() {
+  if (!ball.stuck) return;
+  const angle = (Math.random() * 40 - 20) * Math.PI / 180;
+  ball.dx = ball.speed * Math.sin(angle);
+  ball.dy = -ball.speed * Math.cos(angle);
+  ball.stuck = false;
+  state = "playing";
+}
+
+function updateHud() {
+  $("scoreVal").textContent = score.toLocaleString();
+  $("livesVal").textContent = "♥".repeat(lives) || "-";
+  $("bricksVal").textContent = bricksLeft;
+}
+
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2, s = Math.random() * 3 + 1;
+    particles.push({ x, y, dx: Math.cos(a) * s, dy: Math.sin(a) * s, life: 1, color });
+  }
+}
+
+/* ---------- 키보드 조작 ---------- */
+document.addEventListener("keydown", e => {
+  if (state === "login" || document.activeElement === $("nameInput")) return;
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
+  if (e.key === "ArrowLeft") keys.left = true;
+  if (e.key === "ArrowRight") keys.right = true;
+  if ((e.key === " " || e.key === "ArrowUp") && state === "ready") launchBall();
+  if ((e.key === "p" || e.key === "P" || e.key === "ㅔ") && (state === "playing" || state === "paused")) {
+    state = state === "playing" ? "paused" : "playing";
+  }
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "ArrowLeft") keys.left = false;
+  if (e.key === "ArrowRight") keys.right = false;
+});
+
+/* ---------- (보너스) 모바일 터치 조작 ---------- */
+canvas.addEventListener("pointermove", e => {
+  if (state !== "playing" && state !== "ready") return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (W / rect.width);
+  paddle.x = Math.max(0, Math.min(W - paddle.w, x - paddle.w / 2));
+});
+canvas.addEventListener("pointerdown", () => { if (state === "ready") launchBall(); });
+
+/* ---------- 물리 업데이트 ---------- */
+function update(dt) {
+  // 파티클은 항상 움직임
+  particles.forEach(p => { p.x += p.dx * dt; p.y += p.dy * dt; p.dy += 0.08 * dt; p.life -= 0.025 * dt; });
+  particles = particles.filter(p => p.life > 0);
+
+  if (state !== "playing" && state !== "ready") return;
+
+  // 패들
+  if (keys.left) paddle.x -= paddle.speed * dt;
+  if (keys.right) paddle.x += paddle.speed * dt;
+  paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+
+  if (ball.stuck) {
+    ball.x = paddle.x + paddle.w / 2;
+    ball.y = paddle.y - ball.r - 1;
+    return;
+  }
+
+  const prevX = ball.x, prevY = ball.y;
+  ball.x += ball.dx * dt;
+  ball.y += ball.dy * dt;
+
+  // 벽
+  if (ball.x - ball.r < 0) { ball.x = ball.r; ball.dx = Math.abs(ball.dx); }
+  if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.dx = -Math.abs(ball.dx); }
+  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.dy = Math.abs(ball.dy); }
+
+  // 패들 충돌: 맞은 위치에 따라 튕기는 각도가 달라짐
+  if (ball.dy > 0 &&
+      ball.y + ball.r >= paddle.y && ball.y + ball.r <= paddle.y + paddle.h + 8 &&
+      ball.x >= paddle.x - ball.r && ball.x <= paddle.x + paddle.w + ball.r) {
+    const rel = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+    const angle = Math.max(-1, Math.min(1, rel)) * 60 * Math.PI / 180;
+    ball.speed = Math.min(ball.speed + 0.12, 9.5);
+    ball.dx = ball.speed * Math.sin(angle);
+    ball.dy = -ball.speed * Math.cos(angle);
+    ball.y = paddle.y - ball.r;
+  }
+
+  // 벽돌 충돌
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    const nx = Math.max(b.x, Math.min(ball.x, b.x + b.w));
+    const ny = Math.max(b.y, Math.min(ball.y, b.y + b.h));
+    if ((ball.x - nx) ** 2 + (ball.y - ny) ** 2 <= ball.r * ball.r) {
+      b.alive = false;
+      bricksLeft--;
+      score += ROW_POINTS[b.row];
+      spawnParticles(b.x + b.w / 2, b.y + b.h / 2, ROW_COLORS[b.row][0]);
+      // 이전 위치가 벽돌 옆쪽이었으면 좌우 반사, 아니면 상하 반사
+      if (prevX + ball.r <= b.x || prevX - ball.r >= b.x + b.w) ball.dx = -ball.dx;
+      else ball.dy = -ball.dy;
+      updateHud();
+      break;
+    }
+  }
+
+  // 승리
+  if (bricksLeft === 0) {
+    score += lives * 500; // 남은 목숨 보너스
+    updateHud();
+    endGame(true);
+    return;
+  }
+
+  // 공을 놓침
+  if (ball.y - ball.r > H) {
+    lives--;
+    updateHud();
+    if (lives <= 0) { endGame(false); return; }
+    resetBall();
+    state = "ready";
+  }
+}
+
+/* ---------- 그리기 ---------- */
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function draw() {
+  // 배경
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#0d0628");
+  bg.addColorStop(1, "#05020f");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 격자 무늬
+  ctx.strokeStyle = "rgba(155,123,255,0.06)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  if (!bricks) return;
+
+  // 벽돌
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    const [c1, c2] = ROW_COLORS[b.row];
+    const g = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+    g.addColorStop(0, c1);
+    g.addColorStop(1, c2);
+    ctx.shadowColor = c1;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = g;
+    roundRect(b.x, b.y, b.w, b.h, 5);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.28)";
+    roundRect(b.x + 3, b.y + 3, b.w - 6, 4, 2);
+    ctx.fill();
+  }
+
+  // 파티클
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+
+  // 패들
+  const pg = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.w, 0);
+  pg.addColorStop(0, "#3ee8ff");
+  pg.addColorStop(1, "#ff4fd8");
+  ctx.shadowColor = "#3ee8ff";
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = pg;
+  roundRect(paddle.x, paddle.y, paddle.w, paddle.h, 7);
+  ctx.fill();
+
+  // 공
+  ctx.shadowColor = "#ffffff";
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // 안내 문구
+  if (state === "ready") {
+    drawCenterText(lives === 3 && score === 0 ? "SPACE 키로 시작!" : "SPACE 키로 공 발사", "#ffd84f");
+  } else if (state === "paused") {
+    ctx.fillStyle = "rgba(5,2,15,0.6)";
+    ctx.fillRect(0, 0, W, H);
+    drawCenterText("일시정지 · P 키로 계속", "#3ee8ff");
+  }
+}
+
+function drawCenterText(text, color) {
+  ctx.font = "700 22px 'Noto Sans KR', sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 14;
+  ctx.fillText(text, W / 2, H / 2 + 60);
+  ctx.shadowBlur = 0;
+}
+
+/* ---------- 게임 종료 & 저장 ---------- */
+async function endGame(won) {
+  state = "over";
+  keys.left = keys.right = false;
+  $("resultEmoji").textContent = won ? "🎉" : "💥";
+  const title = $("resultTitle");
+  title.textContent = won ? "YOU WIN!" : "GAME OVER";
+  title.className = won ? "win" : "lose";
+  $("finalScore").textContent = score.toLocaleString();
+  $("saveStatus").textContent = "점수 저장 중…";
+  $("resultModal").classList.remove("hidden");
+
+  try {
+    const updated = await saveScore(playerName, score);
+    $("saveStatus").textContent = updated
+      ? "✅ 최고 기록이 저장되었어요!"
+      : "기존 최고 기록이 더 높아서 유지했어요.";
+  } catch (e) {
+    console.error(e);
+    $("saveStatus").textContent = "⚠️ 저장 실패: Firebase 설정과 규칙을 확인해 주세요.";
+  }
+}
+
+/* ---------- 메인 루프 ---------- */
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min((now - last) / 16.67, 2); // 화면 주사율과 관계없이 같은 속도
+  last = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+draw();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
